@@ -8,9 +8,9 @@ exported from this module.
 """
 
 from functools import lru_cache
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,13 +24,28 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # --- LLM provider ---------------------------------------------------
+    # --- LLM provider selection ------------------------------------------
+    llm_provider: Literal["openai", "gemini"] = Field(default="openai", alias="LLM_PROVIDER")
+
+    # --- OpenAI -----------------------------------------------------------
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
-    temperature: float = Field(default=0.0, alias="TEMPERATURE")
     openai_base_url: Optional[str] = Field(default=None, alias="OPENAI_BASE_URL")
+
+    # --- Gemini (Google AI Studio) -----------------------------------------
+    google_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+    )
+    gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
+
+    # --- Shared LLM settings -------------------------------------------------
+    temperature: float = Field(default=0.0, alias="TEMPERATURE")
     llm_request_timeout: float = Field(default=60.0, alias="LLM_REQUEST_TIMEOUT")
     llm_max_retries: int = Field(default=2, alias="LLM_MAX_RETRIES")
+    # Outbound throttle: max LLM calls per second across the whole process
+    # (0 = unlimited). Useful for provider free-tier quotas.
+    llm_requests_per_second: float = Field(default=0.0, alias="LLM_REQUESTS_PER_SECOND")
 
     # --- Chunking ---------------------------------------------------------
     chunk_size: int = Field(default=4000, alias="CHUNK_SIZE")
@@ -46,6 +61,13 @@ class Settings(BaseSettings):
     # --- URL loading ---------------------------------------------------------
     url_fetch_timeout: float = Field(default=10.0, alias="URL_FETCH_TIMEOUT")
 
+    # --- API rate limiting (per client, inbound) -------------------------------
+    rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
+    rate_limit_requests: int = Field(default=10, alias="RATE_LIMIT_REQUESTS")
+    rate_limit_window_seconds: int = Field(default=60, alias="RATE_LIMIT_WINDOW_SECONDS")
+    # Only enable behind a trusted reverse proxy that sets X-Forwarded-For.
+    rate_limit_trust_proxy: bool = Field(default=False, alias="RATE_LIMIT_TRUST_PROXY")
+
     # --- Observability (optional) --------------------------------------------
     langsmith_api_key: Optional[str] = Field(default=None, alias="LANGSMITH_API_KEY")
     langsmith_tracing: bool = Field(default=False, alias="LANGSMITH_TRACING")
@@ -60,6 +82,11 @@ class Settings(BaseSettings):
     # --- Logging ---------------------------------------------------------------
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     environment: str = Field(default="development", alias="ENVIRONMENT")
+
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
 
     @field_validator("cors_allow_origins", mode="before")
     @classmethod

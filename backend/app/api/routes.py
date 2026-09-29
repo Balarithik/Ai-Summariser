@@ -2,8 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.rate_limit import enforce_rate_limit
 from app.schemas.article import SummarizeRequest
 from app.schemas.result import ResultMetadata, SummarizeResponse
 from app.services.article_loader import ArticleLoadError, load_article_from_url
@@ -19,7 +20,12 @@ pipeline = ArticleSummarizationPipeline()
 @router.post(
     "/summarize",
     response_model=SummarizeResponse,
-    responses={400: {"description": "Invalid input"}, 502: {"description": "AI service error"}},
+    dependencies=[Depends(enforce_rate_limit)],
+    responses={
+        400: {"description": "Invalid input"},
+        429: {"description": "Rate limit exceeded"},
+        502: {"description": "AI service error"},
+    },
 )
 async def summarize(request: SummarizeRequest) -> SummarizeResponse:
     article_text = request.article

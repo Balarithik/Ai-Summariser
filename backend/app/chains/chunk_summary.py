@@ -4,15 +4,19 @@ from functools import lru_cache
 
 from langchain_core.runnables import Runnable
 
-from app.llm.provider import create_chat_model
+from app.llm.provider import create_chat_model, get_chunk_model
 from app.prompts.chunk_summary import chunk_summary_prompt
 from app.schemas.analysis import ChunkSummary
 
 
 @lru_cache(maxsize=1)
 def build_chunk_summary_chain() -> Runnable:
-    """Return a runnable: {"chunk_index": int, "chunk_text": str} -> ChunkSummary."""
-    model = create_chat_model().with_structured_output(ChunkSummary)
+    """Return a runnable: {"chunk_index": int, "chunk_text": str} -> ChunkSummary.
+
+    Uses the lightweight gemini-1.5-flash model so that the heavier
+    gemini-3.8-flash quota bucket is reserved for analysis / synthesis / final write.
+    """
+    model = get_chunk_model().with_structured_output(ChunkSummary)
     return (chunk_summary_prompt | model).with_config(run_name="chunk_summary", tags=["chunk_summary"])
 
 

@@ -14,6 +14,10 @@ node_modules/
 dist/
 .vite/
 
+nul
+NUL
+
+
 # Editors / OS
 .vscode/
 .idea/

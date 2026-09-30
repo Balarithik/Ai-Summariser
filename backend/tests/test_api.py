@@ -1,6 +1,13 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.llm.errors import (
+    ProviderAuthenticationError,
+    ProviderConfigurationError,
+    ProviderQuotaExhaustedError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+)
 from app.main import app
 from app.schemas.analysis import FinalSummary
 from app.services.pipeline import InputValidationError, PipelineResult
@@ -136,3 +143,118 @@ def test_cors_allows_configured_origin_only():
         headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
     )
     assert "access-control-allow-origin" not in bad.headers
+
+
+def test_quota_exhausted_returns_500_with_clear_message(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise ProviderQuotaExhaustedError()
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 500
+    assert "quota" in response.json()["detail"].lower() or "credits" in response.json()["detail"].lower()
+
+
+def test_authentication_error_returns_500(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise ProviderAuthenticationError()
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 500
+    assert "api key" in response.json()["detail"].lower()
+
+
+def test_configuration_error_returns_500(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise ProviderConfigurationError("Missing API key")
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 500
+    assert "api key" in response.json()["detail"].lower()
+
+
+def test_rate_limit_error_returns_429(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise ProviderRateLimitError()
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 429
+    assert "rate" in response.json()["detail"].lower()
+
+
+def test_timeout_error_returns_504(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise ProviderTimeoutError()
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 504
+    assert "timed out" in response.json()["detail"].lower()
+
+
+def test_unexpected_error_classified_as_quota(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise Exception("Error code: 429 - insufficient_quota: credit_balance_exhausted")
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 500
+    assert "quota" in response.json()["detail"].lower() or "credits" in response.json()["detail"].lower()
+
+
+def test_unexpected_error_classified_as_rate_limit(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise Exception("Error code: 429 - rate_limit_exceeded")
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 429
+
+
+def test_unexpected_error_classified_as_timeout(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise Exception("Request timed out after 60 seconds")
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 504
+
+
+def test_unexpected_error_returns_502(monkeypatch):
+    async def fake_run(self, article, summary_length):
+        raise Exception("Something completely unexpected")
+
+    monkeypatch.setattr(
+        "app.api.routes.ArticleSummarizationPipeline.run", fake_run
+    )
+
+    response = client.post("/api/v1/summarize", json={"article": "A" * 500})
+    assert response.status_code == 502
+    assert "unexpected" not in response.json()["detail"].lower()

@@ -1,5 +1,6 @@
 import pytest
 
+from app.llm.errors import ProviderError
 from app.schemas.analysis import (
     ArticleAnalysis,
     ChunkInsights,
@@ -248,7 +249,7 @@ async def test_all_chunks_failing_raises(monkeypatch):
     monkeypatch.setattr("app.services.pipeline.run_chunk_summary", boom)
     monkeypatch.setattr("app.services.pipeline.run_insights", boom)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ProviderError):
         await ArticleSummarizationPipeline().run(SAMPLE_ARTICLE, "medium")
 
 

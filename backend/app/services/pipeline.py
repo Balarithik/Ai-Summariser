@@ -25,6 +25,7 @@ from app.chains.final_writer import run_final_writer
 from app.chains.insights import run_insights
 from app.chains.synthesis import run_synthesis
 from app.config.settings import settings
+from app.llm.errors import ProviderError, classify_exception
 from app.schemas.analysis import ChunkResult, FinalSummary
 from app.services.chunker import chunk_article
 from app.services.text_cleaner import TextCleaningError, clean_article_text
@@ -89,14 +90,16 @@ async def _process_chunk(index: int, text: str, semaphore: asyncio.Semaphore) ->
     result = ChunkResult(chunk_index=index)
 
     if isinstance(summary_result, Exception):
-        logger.error("Chunk %s summary failed: %s", index, summary_result)
-        result.summary_error = str(summary_result)
+        provider_error = classify_exception(summary_result)
+        logger.error("Chunk %s summary failed: %s", index, provider_error.message)
+        result.summary_error = provider_error.message
     else:
         result.summary = summary_result
 
     if isinstance(insights_result, Exception):
-        logger.error("Chunk %s insights failed: %s", index, insights_result)
-        result.insights_error = str(insights_result)
+        provider_error = classify_exception(insights_result)
+        logger.error("Chunk %s insights failed: %s", index, provider_error.message)
+        result.insights_error = provider_error.message
     else:
         result.insights = insights_result
 
@@ -132,7 +135,10 @@ class ArticleSummarizationPipeline:
 
         # 4. Analyze (whole-article context)
         async with _stage("article_analysis"):
-            analysis = await run_analysis(cleaned)
+            try:
+                analysis = await run_analysis(cleaned)
+            except Exception as exc:
+                raise classify_exception(exc) from exc
 
         # 5. Parallel per-chunk processing (summary + insights)
         async with _stage("chunk_summary+chunk_insights"):
@@ -147,15 +153,21 @@ class ArticleSummarizationPipeline:
 
         # If every chunk failed on both chains there is nothing to synthesize.
         if all(c.summary is None and c.insights is None for c in chunk_results):
-            raise RuntimeError("All chunk processing failed.")
+            raise ProviderError("All chunk processing failed.")
 
         # 6. Synthesis
         async with _stage("synthesis"):
-            draft = await run_synthesis(analysis, chunk_results)
+            try:
+                draft = await run_synthesis(analysis, chunk_results)
+            except Exception as exc:
+                raise classify_exception(exc) from exc
 
         # 7. Critique
         async with _stage("critic"):
-            critique = await run_critic(cleaned, draft)
+            try:
+                critique = await run_critic(cleaned, draft)
+            except Exception as exc:
+                raise classify_exception(exc) from exc
         logger.info("Critic verdict: %s", critique.status)
 
         # 8. Optional single revision cycle: if REVISE, the final writer is
@@ -165,7 +177,10 @@ class ArticleSummarizationPipeline:
 
         # 9. Final writer
         async with _stage("final_writer"):
-            final_summary = await run_final_writer(analysis, draft, critique, summary_length)
+            try:
+                final_summary = await run_final_writer(analysis, draft, critique, summary_length)
+            except Exception as exc:
+                raise classify_exception(exc) from exc
 
         duration = time.monotonic() - start
         logger.info("Pipeline finished. duration_seconds=%.2f", duration)

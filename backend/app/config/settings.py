@@ -37,7 +37,7 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("GOOGLE_API_KEY", "GEMINI_API_KEY"),
     )
-    gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
+    gemini_model: str = Field(default="gemini-3.1-flash-lite", alias="GEMINI_MODEL")
 
     # --- Shared LLM settings -------------------------------------------------
     temperature: float = Field(default=0.0, alias="TEMPERATURE")
@@ -95,6 +95,22 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    def validate(self) -> None:
+        """
+        Validate provider configuration.
+
+        Raises ValueError with a clear message if the selected provider
+        is missing required configuration.
+        """
+        if self.llm_provider == "openai" and not self.openai_api_key:
+            raise ValueError(
+                "LLM_PROVIDER=openai requires OPENAI_API_KEY to be set."
+            )
+        if self.llm_provider == "gemini" and not self.google_api_key:
+            raise ValueError(
+                "LLM_PROVIDER=gemini requires GOOGLE_API_KEY to be set."
+            )
 
 
 @lru_cache

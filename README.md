@@ -337,11 +337,15 @@ Ai-Summariser/
 │   │   │   ├── chunker.py
 │   │   │   ├── pipeline.py
 │   │   │   └── text_cleaner.py
-│   │   ├── main.py
-│   │   ├── requirements.txt
-│   │   ├── .env.example
-│   │   └── tests/
-│   └── pytest.ini
+│   │   └── main.py
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   ├── fake_openai.py
+│   │   └── test_*.py
+│   ├── .env.example
+│   ├── pytest.ini
+│   ├── README.md
+│   └── requirements.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
